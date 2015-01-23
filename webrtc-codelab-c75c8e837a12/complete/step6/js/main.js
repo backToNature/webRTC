@@ -7,6 +7,7 @@ var localStream;
 var pc;
 var remoteStream;
 var turnReady;
+var master = false;
 
 var pc_config = {'iceServers': [{'url': 'stun:stunserver.org'}]};
 
@@ -19,6 +20,8 @@ var sdpConstraints = {'mandatory': {
 
 /////////////////////////////////////////////
 
+
+
 var room = location.pathname.substring(1);
 if (room === '') {
 //  room = prompt('Enter room name:');
@@ -26,6 +29,7 @@ if (room === '') {
 } else {
   //
 }
+room = prompt("Enter room name:");
 
 var socket = io.connect();
 
@@ -37,6 +41,7 @@ if (room !== '') {
 socket.on('created', function (room){
   console.log('Created room ' + room);
   isInitiator = true;
+  master = true;
 });
 
 socket.on('full', function (room){
@@ -97,9 +102,11 @@ var localVideo = document.querySelector('#localVideo');
 var remoteVideo = document.querySelector('#remoteVideo');
 
 function handleUserMedia(stream) {
-  console.log('Adding local stream.');
-  localVideo.src = window.URL.createObjectURL(stream);
-  localStream = stream;
+        console.log('Adding local stream.');
+    if (master) {
+        localVideo.src = window.URL.createObjectURL(stream);
+    }
+        localStream = stream;
   sendMessage('got user media');
   if (isInitiator) {
     maybeStart();
@@ -123,7 +130,6 @@ function maybeStart() {
   if (!isStarted && typeof localStream != 'undefined' && isChannelReady) {
     createPeerConnection();
     pc.addStream(localStream);
-//      pc.onaddstream();
     isStarted = true;
     console.log('isInitiator', isInitiator);
     if (isInitiator) {
@@ -142,7 +148,9 @@ function createPeerConnection() {
   try {
     pc = new RTCPeerConnection(null);
     pc.onicecandidate = handleIceCandidate;
-    pc.onaddstream = handleRemoteStreamAdded;
+    if (!master) {
+        pc.onaddstream = handleRemoteStreamAdded;
+    }
     pc.onremovestream = handleRemoteStreamRemoved;
     console.log('Created RTCPeerConnnection');
   } catch (e) {
