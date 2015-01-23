@@ -22,9 +22,12 @@ io.sockets.on('connection', function (socket){
 		socket.broadcast.emit('message', message);
 	});
 
+    socket.on('generatId', function (message) {
+        socket.broadcast.emit('message', message);
+    });
+
 	socket.on('create or join', function (room) {
 		var numClients = io.sockets.clients(room).length;
-
 		log('Room ' + room + ' has ' + numClients + ' client(s)');
 		log('Request to create or join room', room);
 

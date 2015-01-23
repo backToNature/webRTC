@@ -8,6 +8,7 @@ var pc = [];
 var remoteStream;
 var turnReady;
 var candidate;
+var client_flag = false;
 var pc_config = {'iceServers': [{'url': 'stun:stunserver.org'}]};
 
 var pc_constraints = {'optional': [{'DtlsSrtpKeyAgreement': true}]};
@@ -63,29 +64,51 @@ function sendMessage(message){
 }
     socket.on('message', function (message){
         console.log('Client received message:', message);
-        if (message === 'got user media' && isInitiator) {
-            maybeStart();
-        } else if (message.type === 'offer' && !isStarted && isInitiator) {
-            maybeStart();
-            if (pc.length) {
-                pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+        if (isInitiator) {
+            if (message === 'got user media') {
+                maybeStart();
+            } else if (message.type === 'answer' && isStarted) {
+                if (pc.length) {
+                    pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+                }
+            } else if (message.type === 'candidate' && isStarted) {
+                candidate = new RTCIceCandidate({
+                    sdpMLineIndex: message.label,
+                    candidate: message.candidate
+                });
+                if (pc.length) {
+                    pc[pc.length - 1].addIceCandidate(candidate);
+                }
+            } else if (message === 'bye') {
+                handleRemoteHangup();
             }
-            doAnswer();
-        } else if (message.type === 'answer' && isStarted) {
-            if (pc.length) {
-                pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+        } else {
+             if (message.type === 'offer' && !client_flag) {
+                if (!isStarted && !isInitiator) {
+                    maybeStart();
+                }
+                if (pc.length) {
+                    pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+                }
+                doAnswer();
+            } else if (message.type === 'answer' && isStarted && !client_flag) {
+                if (pc.length) {
+                    pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+                }
+            } else if (message.type === 'candidate' && isStarted && !candidate) {
+                candidate = new RTCIceCandidate({
+                    sdpMLineIndex: message.label,
+                    candidate: message.candidate
+                });
+                if (pc.length) {
+                    pc[pc.length - 1].addIceCandidate(candidate);
+                }
+                client_flag = true;
+            } else if (message === 'bye') {
+                handleRemoteHangup();
             }
-        } else if (message.type === 'candidate' && isStarted && !candidate) {
-            candidate = new RTCIceCandidate({
-                sdpMLineIndex: message.label,
-                candidate: message.candidate
-            });
-            if (pc.length) {
-                pc[pc.length - 1].addIceCandidate(candidate);
-            }
-        } else if (message === 'bye') {
-            handleRemoteHangup();
         }
+
     });
 
 
@@ -96,7 +119,9 @@ var remoteVideo = document.querySelector('#remoteVideo');
 
 function handleUserMedia(stream) {
   console.log('Adding local stream.');
-  localVideo.src = window.URL.createObjectURL(stream);
+  if (isInitiator) {
+      localVideo.src = window.URL.createObjectURL(stream);
+  }
   localStream = stream;
   sendMessage('got user media');
   maybeStart();
@@ -116,7 +141,7 @@ if (location.hostname != "localhost") {
 }
 
 function maybeStart() {
-  if (!isStarted && typeof localStream != 'undefined' && isChannelReady) {
+  if (typeof localStream != 'undefined' && isChannelReady) {
     createPeerConnection();
     if (pc.length) {
         pc[pc.length - 1].addStream(localStream);
@@ -141,6 +166,7 @@ function createPeerConnection() {
         temp.onicecandidate = handleIceCandidate;
         temp.onaddstream = handleRemoteStreamAdded;
         temp.onremovestream = handleRemoteStreamRemoved;
+
     pc.push(temp);
     console.log('Created RTCPeerConnnection');
   } catch (e) {
@@ -152,12 +178,15 @@ function createPeerConnection() {
 
 function handleIceCandidate(event) {
   console.log('handleIceCandidate event: ', event);
+
   if (event.candidate) {
     sendMessage({
       type: 'candidate',
       label: event.candidate.sdpMLineIndex,
       id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate});
+      candidate: event.candidate.candidate,
+      isInitiator: isInitiator
+    });
   } else {
     console.log('End of candidates.');
   }
@@ -223,7 +252,9 @@ function requestTurn(turn_url) {
 
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
-  remoteVideo.src = window.URL.createObjectURL(event.stream);
+  if (!isInitiator) {
+      remoteVideo.src = window.URL.createObjectURL(event.stream);
+  }
   remoteStream = event.stream;
 }
 
@@ -231,11 +262,7 @@ function handleRemoteStreamRemoved(event) {
   console.log('Remote stream removed. Event: ', event);
 }
 
-function hangup() {
-  console.log('Hanging up.');
-  stop();
-  sendMessage('bye');
-}
+
 
 function handleRemoteHangup() {
 //  console.log('Session terminated.');
