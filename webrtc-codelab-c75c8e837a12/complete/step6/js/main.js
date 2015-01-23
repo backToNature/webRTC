@@ -4,11 +4,10 @@ var isChannelReady;
 var isInitiator = false;
 var isStarted = false;
 var localStream;
-var pc;
+var pc = [];
 var remoteStream;
 var turnReady;
-var master = false;
-
+var candidate;
 var pc_config = {'iceServers': [{'url': 'stun:stunserver.org'}]};
 
 var pc_constraints = {'optional': [{'DtlsSrtpKeyAgreement': true}]};
@@ -22,14 +21,8 @@ var sdpConstraints = {'mandatory': {
 
 
 
-var room = location.pathname.substring(1);
-if (room === '') {
-//  room = prompt('Enter room name:');
-  room = 'foo';
-} else {
-  //
-}
-room = prompt("Enter room name:");
+
+var room = location.hash;
 
 var socket = io.connect();
 
@@ -41,16 +34,10 @@ if (room !== '') {
 socket.on('created', function (room){
   console.log('Created room ' + room);
   isInitiator = true;
-  master = true;
-});
-
-socket.on('full', function (room){
-  console.log('Room ' + room + ' is full');
 });
 
 socket.on('join', function (room){
   console.log('Another peer made a request to join room ' + room);
-  console.log('This peer is the initiator of room ' + room + '!');
   isChannelReady = true;
 });
 
@@ -65,6 +52,8 @@ socket.on('log', function (array){
 
 ////////////////////////////////////////////////
 
+
+
 function sendMessage(message){
 	console.log('Client sending message: ', message);
   // if (typeof message === 'object') {
@@ -72,29 +61,33 @@ function sendMessage(message){
   // }
   socket.emit('message', message);
 }
-
-socket.on('message', function (message){
-  console.log('Client received message:', message);
-  if (message === 'got user media') {
-  	maybeStart();
-  } else if (message.type === 'offer') {
-    if (!isInitiator && !isStarted) {
-      maybeStart();
-    }
-    pc.setRemoteDescription(new RTCSessionDescription(message));
-    doAnswer();
-  } else if (message.type === 'answer' && isStarted) {
-    pc.setRemoteDescription(new RTCSessionDescription(message));
-  } else if (message.type === 'candidate' && isStarted) {
-    var candidate = new RTCIceCandidate({
-      sdpMLineIndex: message.label,
-      candidate: message.candidate
+    socket.on('message', function (message){
+        console.log('Client received message:', message);
+        if (message === 'got user media' && isInitiator) {
+            maybeStart();
+        } else if (message.type === 'offer' && !isStarted && isInitiator) {
+            maybeStart();
+            if (pc.length) {
+                pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+            }
+            doAnswer();
+        } else if (message.type === 'answer' && isStarted) {
+            if (pc.length) {
+                pc[pc.length - 1].setRemoteDescription(new RTCSessionDescription(message));
+            }
+        } else if (message.type === 'candidate' && isStarted && !candidate) {
+            candidate = new RTCIceCandidate({
+                sdpMLineIndex: message.label,
+                candidate: message.candidate
+            });
+            if (pc.length) {
+                pc[pc.length - 1].addIceCandidate(candidate);
+            }
+        } else if (message === 'bye') {
+            handleRemoteHangup();
+        }
     });
-    pc.addIceCandidate(candidate);
-  } else if (message === 'bye' && isStarted) {
-    handleRemoteHangup();
-  }
-});
+
 
 ////////////////////////////////////////////////////
 
@@ -102,15 +95,11 @@ var localVideo = document.querySelector('#localVideo');
 var remoteVideo = document.querySelector('#remoteVideo');
 
 function handleUserMedia(stream) {
-        console.log('Adding local stream.');
-    if (master) {
-        localVideo.src = window.URL.createObjectURL(stream);
-    }
-        localStream = stream;
+  console.log('Adding local stream.');
+  localVideo.src = window.URL.createObjectURL(stream);
+  localStream = stream;
   sendMessage('got user media');
-  if (isInitiator) {
-    maybeStart();
-  }
+  maybeStart();
 }
 
 function handleUserMediaError(error){
@@ -129,7 +118,9 @@ if (location.hostname != "localhost") {
 function maybeStart() {
   if (!isStarted && typeof localStream != 'undefined' && isChannelReady) {
     createPeerConnection();
-    pc.addStream(localStream);
+    if (pc.length) {
+        pc[pc.length - 1].addStream(localStream);
+    }
     isStarted = true;
     console.log('isInitiator', isInitiator);
     if (isInitiator) {
@@ -146,12 +137,11 @@ window.onbeforeunload = function(e){
 
 function createPeerConnection() {
   try {
-    pc = new RTCPeerConnection(null);
-    pc.onicecandidate = handleIceCandidate;
-    if (!master) {
-        pc.onaddstream = handleRemoteStreamAdded;
-    }
-    pc.onremovestream = handleRemoteStreamRemoved;
+    var temp = new RTCPeerConnection(null);
+        temp.onicecandidate = handleIceCandidate;
+        temp.onaddstream = handleRemoteStreamAdded;
+        temp.onremovestream = handleRemoteStreamRemoved;
+    pc.push(temp);
     console.log('Created RTCPeerConnnection');
   } catch (e) {
     console.log('Failed to create PeerConnection, exception: ' + e.message);
@@ -173,11 +163,6 @@ function handleIceCandidate(event) {
   }
 }
 
-function handleRemoteStreamAdded(event) {
-  console.log('Remote stream added.');
-  remoteVideo.src = window.URL.createObjectURL(event.stream);
-  remoteStream = event.stream;
-}
 
 function handleCreateOfferError(event){
   console.log('createOffer() error: ', e);
@@ -185,18 +170,24 @@ function handleCreateOfferError(event){
 
 function doCall() {
   console.log('Sending offer to peer');
-  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
+    if (pc.length) {
+        pc[pc.length - 1].createOffer(setLocalAndSendMessage, handleCreateOfferError);
+    }
 }
 
 function doAnswer() {
   console.log('Sending answer to peer.');
-  pc.createAnswer(setLocalAndSendMessage, null, sdpConstraints);
+    if(pc.length) {
+        pc[pc.length - 1].createAnswer(setLocalAndSendMessage, null, sdpConstraints);
+    }
 }
 
 function setLocalAndSendMessage(sessionDescription) {
   // Set Opus as the preferred codec in SDP if Opus is present.
   sessionDescription.sdp = preferOpus(sessionDescription.sdp);
-  pc.setLocalDescription(sessionDescription);
+    if(pc.length) {
+        pc[pc.length - 1].setLocalDescription(sessionDescription);
+    }
   console.log('setLocalAndSendMessage sending message' , sessionDescription);
   sendMessage(sessionDescription);
 }
