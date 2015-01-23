@@ -19,10 +19,14 @@
 <div id='container'>
 
   <div id='videos'>
-    <video id='localVideo' autoplay muted></video>
-    <video id='remoteVideo' autoplay muted></video>
+    <video id='localVideo' autoplay></video>
+    <script>
+        var ddd =  document.getElementById('localVideo');
+        ddd.volume = 0.0;
+    </script>
+    <video id='remoteVideo' autoplay></video>
   </div>
-s
+
 </div>
 
 <script src='/socket.io/socket.io.js'></script>
