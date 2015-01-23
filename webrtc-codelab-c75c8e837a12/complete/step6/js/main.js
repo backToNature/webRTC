@@ -8,7 +8,7 @@ var pc;
 var remoteStream;
 var turnReady;
 
-var pc_config = {'iceServers': [{'url': 'stun:stun.l.google.com:19302'}]};
+var pc_config = {'iceServers': [{'url': 'stun:stunserver.org'}]};
 
 var pc_constraints = {'optional': [{'DtlsSrtpKeyAgreement': true}]};
 
@@ -110,7 +110,7 @@ function handleUserMediaError(error){
   console.log('getUserMedia error: ', error);
 }
 
-var constraints = {video: true};
+var constraints = {video: true, audio: true};
 getUserMedia(constraints, handleUserMedia, handleUserMediaError);
 
 console.log('Getting user media with constraints', constraints);
@@ -123,6 +123,7 @@ function maybeStart() {
   if (!isStarted && typeof localStream != 'undefined' && isChannelReady) {
     createPeerConnection();
     pc.addStream(localStream);
+//      pc.onaddstream();
     isStarted = true;
     console.log('isInitiator', isInitiator);
     if (isInitiator) {
